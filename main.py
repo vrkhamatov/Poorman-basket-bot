@@ -1,6 +1,6 @@
 import psycopg2
 import telebot
-import telebot.types
+from consts import ConstsString
 
 from config import host,user,password, db_name, TOKEN
 # Создаем экземпляр бота
@@ -12,10 +12,24 @@ connection = psycopg2.connect(
         database = db_name
 )
 
+def check_rate(user_money):
+    rating_money = 0
+    if user_money <= 200:
+        rating_money = 1
+    elif user_money <= 300:
+        rating_money = 2
+    elif user_money <= 400:
+        rating_money = 3
+    elif user_money <= 500:
+        rating_money = 4
+    elif user_money <= 800:
+        rating_money = 5
+    return rating_money
+
 # Функция, обрабатывающая команду /start
 @bot.message_handler(commands=["start"])
 def start(m, res=False):
-   bot.send_message(m.chat.id, 'Привет! Я помогу тебе не умереть с голоду! Напиши мне сумму, которую ты готов потратить на блюдо')
+   bot.send_message(m.chat.id, ConstsString.meeting_text())
 
 # Получение сообщений от юзера
 @bot.message_handler(content_types=["text"])
@@ -24,45 +38,80 @@ def handle_text(message):
     print(user_money)
     if user_money.isdigit():
         user_money = int(user_money)
-        if user_money >50:
+
+        rating_money = check_rate(user_money) # Вычислим рейтинг исходя из бюджета юзера
+        print(user_money)
+
+        if user_money > 199:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """SELECT recipe_name,all_cost FROM recipe WHERE recipe.all_cost < %s;""",
-                (user_money,))
-                answer = cursor.fetchone()
-                i = int(0)
+                    """SELECT name FROM dishes WHERE dishes.cost_rate = %s;""", # Запрос на названия блюд, рейтинг которых совпадает с найденным.
+                (rating_money,))
+                found_name = cursor.fetchone()
+                i = 0
                 markup_reply = telebot.types.InlineKeyboardMarkup()
-                str_message = "Исходя из вашего бюджета вы можете приготовить: \n"
-                while answer is not None:
-                    str_message = str_message + answer[0] + " - " + str(answer[1]) + " рублей\n"
-                    item_yes = telebot.types.InlineKeyboardButton(text= str(answer[0]), callback_data=str(answer[0]))
-                    answer = cursor.fetchone()
+                str_message = ConstsString.opportunity_dishes()
+                
+                while found_name is not None:
+                    str_message = str_message + found_name[0]
+                    item_yes = telebot.types.InlineKeyboardButton(text= str(found_name[0]), callback_data=str(found_name[0]))
+                    found_name = cursor.fetchone()
                     markup_reply.add(item_yes)
                     i = i + 1
-                bot.send_message(message.chat.id, "Выберите понравившийся рецепт", reply_markup=markup_reply)
-
+                    
+                bot.send_message(message.chat.id, ConstsString.chose_recipe(), reply_markup=markup_reply)
         else:
-            bot.send_message(message.from_user.id,'У тебя слишком мало денег, чтобы позволить себе поесть. Стоит задуматься')
+            bot.send_message(message.from_user.id,ConstsString.low_money())
     else:
-        bot.send_message(message.from_user.id,'Вы должны ввести сумму, которую готовы потратить на блюдо')
+        bot.send_message(message.from_user.id, ConstsString.wrong_message())
 
 @bot.callback_query_handler(func= lambda call: True)
 def answer(call):
     choosen_dishes = call.data
     with connection.cursor() as cursor:
+        
         cursor.execute(
-            """SELECT ingredient_name FROM ingredient,recipe WHERE (recipe.id = ingredient.ingr_id) and (recipe.recipe_name = %s);""",
-        (choosen_dishes,))
+            """SELECT photo,id FROM dishes WHERE (dishes.name = %s);""", # Запрос на фотографии и id выбранного блюда
+            (choosen_dishes,))
+        
+        found_ph_id = cursor.fetchone()
+        choosen_dishes_id = int(found_ph_id[1])
+
+        cursor.execute(
+            """SELECT cost_rate,time_rate FROM dishes WHERE (dishes.name = %s);""",
+            (choosen_dishes,))
+        found_cost_time = cursor.fetchone()
+
+        rating_cost = int(found_cost_time[0])
+        rating_time = int(found_cost_time[1])
+
+        star_cost = 'Цена '
+        star_time = 'Время '
+
+        for i in range(rating_cost):
+            star_cost = star_cost + "⭐️"
+
+        for i in range(rating_time):
+            star_time = star_time + "⭐️"
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """SELECT ingredients.name,dishes.id,dishes_ingredients.quantity,dishes_ingredients.units FROM dishes,ingredients 
+            INNER JOIN dishes_ingredients ON ingredients.id = dishes_ingredients.ingredient_id 
+            WHERE ((dish_id = %s) and (dishes.id = %s));""", # Запрос на названия ингредиентов
+            (choosen_dishes_id,choosen_dishes_id))
+
         answer_1 = cursor.fetchone()
         markup_reply2 = telebot.types.ReplyKeyboardMarkup()
-        str_message = "Для приготовления выбранного блюда потребуются следующие игредиенты: \n"
+        str_message = choosen_dishes + '\n' + star_cost + '\n' + star_time + ConstsString.ingredients()
+
         while answer_1 is not None:
-            str_message = str_message + answer_1[0] + '\n'
+            str_message = str_message + '✔️' + answer_1[0] + '\t' + str(answer_1[2]) + ' ' + str(answer_1[3]) + '\n'
             item_yes = telebot.types.KeyboardButton(str(answer_1[0]))
             markup_reply2.add(item_yes)
             answer_1 = cursor.fetchone()
-    # bot.send_message(call.from_user.id, 'Чек лист', reply_markup=markup_reply2)
-    bot.send_message(call.from_user.id, str_message)
+
+        bot.send_photo(call.from_user.id,photo=found_ph_id[0],caption = str_message)
     bot.answer_callback_query(callback_query_id=call.id)
 
 #Запускаем бота
