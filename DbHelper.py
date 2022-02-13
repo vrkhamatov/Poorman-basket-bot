@@ -1,11 +1,16 @@
 import psycopg2
-from config import host,user,password, db_name
-
+# from config import host,user,password, db_name
+from dotenv import load_dotenv
+import os
+from pathlib import Path
+load_dotenv()
+env_path = Path('.')/'.env'
+load_dotenv(dotenv_path=env_path)
 connection = psycopg2.connect(
-        host = host,
-        user = user,
-        password = password,
-        database = db_name
+        host = os.getenv("host"),
+        user = os.getenv("user"),
+        password = os.getenv("password"),
+        database = os.getenv("db_name"),
 )
 
 class DbRequests:
@@ -14,7 +19,7 @@ class DbRequests:
         def dishes_request(cls,rating_money):
                 with connection.cursor() as cursor:
                         cursor.execute(
-                                """SELECT name FROM dishes WHERE dishes.cost_rate = %s;""",
+                                """SELECT name FROM dishes WHERE dishes.cost_rate <= %s  ORDER BY cost_rate;""",
                                 # Запрос на названия блюд, рейтинг которых совпадает с найденным.
                                 (rating_money,))
                         found_name = cursor.fetchall()
