@@ -7,10 +7,10 @@ load_dotenv()
 env_path = Path('.')/'.env'
 load_dotenv(dotenv_path=env_path)
 connection = psycopg2.connect(
-        host = os.getenv("host"),
-        user = os.getenv("user"),
-        password = os.getenv("password"),
-        database = os.getenv("db_name"),
+        host = os.getenv("HOST"),
+        user = os.getenv("POSTGRES_USER"),
+        password = os.getenv("POSTGRES_PASSWORD"),
+        database = os.getenv("POSTGRES_DB"),
 )
 
 class DbRequests:
